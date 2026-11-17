@@ -10,12 +10,13 @@ built into Juice Shop on purpose. They are not new findings.
 | Test | What it proves |
 |---|---|
 | Two users in isolated browser contexts | Each signed-in user sees only their own basket in the UI when both sessions are open at once. |
-| User A reads user B basket by ID | The basket API returns another user's basket when called with that user's ID (known weakness, kept as an expected failure). |
-| Regular user lists all accounts | The accounts API answers a non-admin user, the restriction exists only in the UI (known weakness, kept as an expected failure). |
+| User A reads user B basket by ID | The basket API returns another user's basket when called with that user's ID (known weakness). |
+| Regular user lists all accounts | The accounts API answers a non-admin user, the restriction exists only in the UI (known weakness). |
 
-Every test states the secure expectation. Tests marked `test.fail()` stay green
-only while Juice Shop still shows the known weakness, so a change in its
-behavior makes the run red and gets noticed.
+Test 1 checks isolation that works. Tests 2 and 3 pass only when the other
+user's data is actually returned, so a failure for any other reason, such as
+broken registration, makes the run red instead of hiding behind an expected
+failure.
 
 Fresh accounts with random emails are created on every run, so runs do not
 depend on each other or on seeded data.
