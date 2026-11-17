@@ -2,9 +2,9 @@ import { test, expect } from '@playwright/test';
 import { addProduct, bearer, createUser, signInContext } from './helpers';
 
 // Target: OWASP Juice Shop, an intentionally vulnerable training app.
-// Each test states the SECURE expectation. Where Juice Shop is known to break
-// it on purpose, the test is marked test.fail(): the run stays green only while
-// the known weakness is still reproduced, and turns red if behavior changes.
+// Test 1 checks isolation that works. Tests 2 and 3 assert that two KNOWN,
+// built-in weaknesses are reproduced: they pass only when the other user's
+// data is actually returned, so any other failure turns the run red.
 
 const APPLE = 1;  // Apple Juice (1000ml)
 const ORANGE = 2; // Orange Juice (1000ml)
@@ -34,30 +34,37 @@ test('two users in isolated browser contexts each see only their own basket', as
   await ctxB.close();
 });
 
-test('user A cannot read user B basket by ID through the API', async ({ request }) => {
-  test.fail(true, 'Juice Shop intentionally allows reading another user basket by ID (known training challenge)');
+test('known weakness: user A can read user B basket by ID through the API', async ({ request }) => {
   const a = await createUser(request, 'user-a');
   const b = await createUser(request, 'user-b');
   await addProduct(request, b, ORANGE);
 
   const res = await request.get(`/rest/basket/${b.basketId}`, { headers: bearer(a) });
-  const body = await res.json().catch(() => ({}));
-  test.info().annotations.push({ type: 'observed', description: `status ${res.status()}, owner ${body?.data?.UserId}, requester ${a.userId}` });
+  const body = await res.json();
+  const products: number[] = (body?.data?.Products ?? []).map((p: { id: number }) => p.id);
+  test.info().annotations.push({
+    type: 'observed',
+    description: `status ${res.status()}, basket owner ${body?.data?.UserId}, requester ${a.userId}, products ${products.join(',')}`,
+  });
 
-  // Secure expectation: refused, or at least never another user's data.
-  expect(res.status() === 200 && body?.data?.UserId === b.userId, 'A received B basket').toBe(false);
+  expect(res.status()).toBe(200);
+  expect(body.data.UserId, 'basket belongs to B').toBe(b.userId);
+  expect(b.userId).not.toBe(a.userId);
+  expect(products, 'B item visible to A').toContain(ORANGE);
 });
 
-test('regular user cannot list all user accounts through the API', async ({ request }) => {
-  test.fail(true, 'Juice Shop intentionally lets any signed-in user list all accounts (access check exists only in the UI)');
+test('known weakness: regular user can list all user accounts through the API', async ({ request }) => {
   const a = await createUser(request, 'user-a');
-  await createUser(request, 'user-b');
+  const b = await createUser(request, 'user-b');
 
   const res = await request.get('/api/Users', { headers: bearer(a) });
-  const body = await res.json().catch(() => ({}));
-  const count = Array.isArray(body?.data) ? body.data.length : 0;
-  test.info().annotations.push({ type: 'observed', description: `status ${res.status()}, accounts returned ${count}` });
+  const body = await res.json();
+  const emails: string[] = (body?.data ?? []).map((u: { email: string }) => u.email);
+  test.info().annotations.push({
+    type: 'observed',
+    description: `status ${res.status()}, accounts returned ${emails.length}`,
+  });
 
-  // Secure expectation: refused for a non-admin role.
-  expect([401, 403]).toContain(res.status());
+  expect(res.status()).toBe(200);
+  expect(emails, 'B account visible to A').toContain(b.email);
 });
